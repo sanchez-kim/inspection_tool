@@ -1,0 +1,15 @@
+# common
+*.ipynb
+*.png
+*.log
+*.obj
+.env
+DS_Store
+__pycache__
+*.pyc
+*.txt
+
+# temp
+Sentence2111_images
+Sentence2111_objs
+notebooks
