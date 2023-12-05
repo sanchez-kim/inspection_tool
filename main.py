@@ -14,9 +14,10 @@ import requests
 import trimesh
 from dotenv import load_dotenv
 
-from missing_files import find_missing_files
+from utils.missing_files import find_missing_files
+from models import MODELS
 
-load_dotenv
+load_dotenv()
 
 MAX_FRAME_NUM = 300
 RESIZE_FACTOR = (1000, 1000)
@@ -24,17 +25,6 @@ BATCH = 1
 
 base_url = os.getenv("base_url")
 base_image_url = os.getenv("base_image_url")
-
-# Output directories
-# obj_output_dir = Path("./objs")
-# img_output_dir = Path("./images")
-img_output_dir = Path("./Sentence2111_images/images")
-obj_output_dir = Path("./Sentence2111_objs/objs")
-
-log_dir = Path("./logs")
-obj_output_dir.mkdir(parents=True, exist_ok=True)
-img_output_dir.mkdir(parents=True, exist_ok=True)
-log_dir.mkdir(parents=True, exist_ok=True)
 
 
 def download_and_process_obj(obj_url, obj_path, renderer):
@@ -107,17 +97,48 @@ def fetch_image(url):
 
 
 def load_obj_from_url(url):
+    print(url)
     response = requests.get(url)
     if response.status_code == 200:
-        return trimesh.load(io.BytesIO(response.content), file_type="obj")
+        loaded_obj = trimesh.load(io.BytesIO(response.content), file_type="obj")
+
+        # Check if the loaded object is a single mesh or a scene
+        if isinstance(loaded_obj, trimesh.Trimesh):
+            # print("Loaded a single mesh.")
+            return loaded_obj
+        elif isinstance(loaded_obj, trimesh.Scene):
+            # print("Loaded a scene with multiple meshes.")
+            return loaded_obj
+        else:
+            print("Loaded an unknown type.")
+            return None
     else:
+        print(f"Failed to download from {url}")
         return None
+
+
+def convert_to_pyrender_meshes(trimesh_obj):
+    pyrender_meshes = []
+
+    # If the loaded object is a single mesh
+    if isinstance(trimesh_obj, trimesh.Trimesh):
+        pyrender_meshes.append(pyrender.Mesh.from_trimesh(trimesh_obj))
+
+    # If the loaded object is a scene with multiple meshes
+    elif isinstance(trimesh_obj, trimesh.Scene):
+        for geom in trimesh_obj.geometry.values():
+            if isinstance(geom, trimesh.Trimesh):
+                pyrender_meshes.append(pyrender.Mesh.from_trimesh(geom))
+
+    return pyrender_meshes
 
 
 def render_and_save(mesh, file_path, renderer):
     scene = pyrender.Scene()
-    pyrender_mesh = pyrender.Mesh.from_trimesh(mesh)
-    scene.add(pyrender_mesh)
+    pyrender_meshes = convert_to_pyrender_meshes(mesh)
+
+    for item in pyrender_meshes:
+        scene.add(item)
 
     # Add a lighting
     light = pyrender.DirectionalLight(color=np.ones(3), intensity=3.0)
@@ -296,6 +317,8 @@ def eval_process(save_results, max_workers=4):
 
 def main(args):
     if args.download:
+        model_num = args.model.zfill(2)
+
         renderer = pyrender.OffscreenRenderer(1000, 1000)
 
         try:
@@ -304,23 +327,27 @@ def main(args):
 
             obj_batch = []
             img_batch = []
-            # for sentence_num in tqdm(range(2501, 3001), desc="Processing sentences"):
-            for sentence_num in range(2501, 3001):
+
+            for sentence_num in range(MODELS[model_num][0], MODELS[model_num][1] + 1):
                 print("processing: ", sentence_num)
                 for num in range(0, MAX_FRAME_NUM + 1):
                     frame_num = f"{num:03}"
-                    filename = f"M06_S{sentence_num}_F{frame_num}"
+                    filename = f"M{model_num}_S{sentence_num}_F{frame_num}"
 
                     if filename not in existing_objs:
                         obj_url = base_url.format(
-                            sentence_num=sentence_num, frame_num=frame_num
+                            model_num=model_num,
+                            sentence_num=sentence_num,
+                            frame_num=frame_num,
                         )
                         obj_path = obj_output_dir / f"{filename}.png"
                         obj_batch.append((obj_url, obj_path))
 
                     if filename not in existing_images:
                         image_url = base_image_url.format(
-                            sentence_num=sentence_num, frame_num=frame_num
+                            model_num=model_num,
+                            sentence_num=sentence_num,
+                            frame_num=frame_num,
                         )
                         image_path = img_output_dir / f"{filename}.png"
                         img_batch.append((image_url, image_path))
@@ -400,9 +427,9 @@ def main(args):
         renderer.delete()
 
     elif args.eval:
-        with open("eval_log.txt", "w") as log_file, contextlib.redirect_stdout(
-            log_file
-        ):
+        with open(
+            "eval_log.txt", "w", encoding="utf-8"
+        ) as log_file, contextlib.redirect_stdout(log_file):
             eval_process(args.save_results)
 
     else:
@@ -411,6 +438,9 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-m", "--model", type=str, default="7", help="Model number to download"
+    )
     parser.add_argument(
         "--download", action="store_true", default=False, help="Download all files"
     )
@@ -436,4 +466,13 @@ if __name__ == "__main__":
         help="Save images with landmarks",
     )
     args = parser.parse_args()
+
+    # Output directories
+    output_base_dir = Path(f"./M{args.model.zfill(2)}")
+    obj_output_dir = Path(output_base_dir, "objs")
+    img_output_dir = Path(output_base_dir, "images")
+    log_dir = Path(output_base_dir, "logs")
+    obj_output_dir.mkdir(parents=True, exist_ok=True)
+    img_output_dir.mkdir(parents=True, exist_ok=True)
+    log_dir.mkdir(parents=True, exist_ok=True)
     main(args)

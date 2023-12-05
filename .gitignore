@@ -10,6 +10,11 @@ __pycache__
 *.txt
 
 # temp
-Sentence2111_images
-Sentence2111_objs
+history
 notebooks
+downloads
+temp
+utils/img
+utils/obj
+M05
+M07

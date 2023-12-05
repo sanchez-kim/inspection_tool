@@ -6,54 +6,140 @@ from PIL import Image
 import pyrender
 import trimesh
 from dotenv import load_dotenv
+from OpenGL.GL import *
+from trimesh.visual.texture import TextureVisuals
 
 load_dotenv()
 
-sentence_num = "2522"
-frame_num = "112"
 base_url = os.getenv("base_url")
+
+r = pyrender.OffscreenRenderer(1000, 1000)
 
 
 def load_obj_from_url(url):
     response = requests.get(url)
     if response.status_code == 200:
-        return trimesh.load(io.BytesIO(response.content), file_type="obj")
+        loaded_obj = trimesh.load(io.BytesIO(response.content), file_type="obj")
+
+        # Check if the loaded object is a single mesh or a scene
+        if isinstance(loaded_obj, trimesh.Trimesh):
+            print("Loaded a single mesh.")
+            return loaded_obj
+        elif isinstance(loaded_obj, trimesh.Scene):
+            print("Loaded a scene with multiple meshes.")
+            return loaded_obj
+        else:
+            print("Loaded an unknown type.")
+            return None
     else:
+        print(f"Failed to download from {url}")
         return None
 
 
-mesh = load_obj_from_url(
-    base_url.format(sentence_num=sentence_num, frame_num=frame_num)
-)
+def rotate_x(angle_degrees):
+    angle_radians = np.radians(angle_degrees)
+    return np.array(
+        [
+            [1, 0, 0, 0],
+            [0, np.cos(angle_radians), -np.sin(angle_radians), 0],
+            [0, np.sin(angle_radians), np.cos(angle_radians), 0],
+            [0, 0, 0, 1],
+        ]
+    )
 
-pyrender_mesh = pyrender.Mesh.from_trimesh(mesh)
 
-scene = pyrender.Scene()
-scene.add(pyrender_mesh)
+def convert_to_pyrender_meshes(trimesh_obj):
+    pyrender_meshes = []
 
-# Add a lighting
-light = pyrender.DirectionalLight(color=np.ones(3), intensity=3.0)
-light_pose = np.eye(4)
-light_pose[:3, 3] = [0, 0, 0]
-scene.add(light, pose=light_pose)
+    # If the loaded object is a single mesh
+    if isinstance(trimesh_obj, trimesh.Trimesh):
+        pyrender_meshes.append(pyrender.Mesh.from_trimesh(trimesh_obj))
 
-display = (1000, 1000)
-aspect_ratio = display[0] / display[1]
-fov = np.radians(35)
+    # If the loaded object is a scene with multiple meshes
+    elif isinstance(trimesh_obj, trimesh.Scene):
+        for geom in trimesh_obj.geometry.values():
+            if isinstance(geom, trimesh.Trimesh):
+                pyrender_meshes.append(pyrender.Mesh.from_trimesh(geom))
 
-# Set camera position
-camera = pyrender.PerspectiveCamera(yfov=fov, aspectRatio=aspect_ratio)
-camera_pose = np.eye(4)
-camera_pose[:3, 3] = [0.1, -0.5, 6.5]
+    return pyrender_meshes
 
-# Add the camera to the scene with the specified pose
-scene.add(camera, pose=camera_pose)
 
-r = pyrender.OffscreenRenderer(1000, 1000)
-color, depth = r.render(scene)
+def render_obj(model_num, sentence_num, frame_num):
+    obj_url = base_url.format(
+        model_num=model_num, sentence_num=sentence_num, frame_num=frame_num
+    )
+    print("Rendering: ", obj_url)
+    mesh = load_obj_from_url(obj_url)
+    pyrender_meshes = convert_to_pyrender_meshes(mesh)
 
-img = Image.fromarray(color)
+    scene = pyrender.Scene()
+    rotation = rotate_x(0)
 
-img.save("./temp.png")
+    # Add each mesh to the scene
+    for mesh in pyrender_meshes:
+        scene.add(mesh, pose=rotation)
 
-r.delete()
+    # Add a lighting
+    light = pyrender.DirectionalLight(color=np.ones(3), intensity=3.0)
+    light_pose = np.eye(4)
+    light_pose[:3, 3] = [0, 0, 0]
+    scene.add(light, pose=light_pose)
+
+    display = (1000, 1000)
+    aspect_ratio = display[0] / display[1]
+    fov = np.radians(35)
+
+    # Set camera position
+    camera = pyrender.PerspectiveCamera(yfov=fov, aspectRatio=aspect_ratio)
+    camera_pose = np.eye(4)
+    camera_pose[:3, 3] = [0.1, -0.5, 6.5]
+
+    # Add the camera to the scene with the specified pose
+    scene.add(camera, pose=camera_pose)
+
+    color, depth = r.render(scene)
+
+    img = Image.fromarray(color)
+
+    img.save(f"./M{model_num}_S{sentence_num}_F{frame_num}.png")
+
+
+def process_file_list(file_list):
+    for file_name in file_list:
+        parts = file_name.split("_")
+        model_num = parts[0][1:]  # Extract model number
+        sentence_num = parts[1][1:]  # Extract sentence number
+        frame_num = parts[2][1:].split(".")[0]  # Extract frame number
+
+        render_obj(model_num, sentence_num, frame_num)
+    r.delete()
+
+
+file_list = [
+    "M07_S3461_F073.png",
+    "M07_S3464_F061.png",
+    "M07_S3464_F062.png",
+    "M07_S3464_F079.png",
+    "M07_S3464_F080.png",
+    "M07_S3467_F053.png",
+    "M07_S3467_F065.png",
+    "M07_S3467_F098.png",
+    "M07_S3467_F099.png",
+    "M07_S3471_F110.png",
+    "M07_S3472_F001.png",
+    "M07_S3472_F007.png",
+    "M07_S3472_F013.png",
+    "M07_S3472_F041.png",
+    "M07_S3472_F050.png",
+    "M07_S3472_F051.png",
+    "M07_S3472_F056.png",
+    "M07_S3472_F079.png",
+    "M07_S3475_F077.png",
+    "M07_S3475_F081.png",
+    "M07_S3475_F085.png",
+    "M07_S3475_F086.png",
+    "M07_S3475_F113.png",
+    "M07_S3479_F045.png",
+]
+
+process_file_list(file_list)
