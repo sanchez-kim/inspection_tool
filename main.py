@@ -521,6 +521,9 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "-m", "--model", type=str, default="7", help="Model number to download"
+    )
+    parser.add_argument(
         "--download", action="store_true", default=False, help="Download all files"
     )
     parser.add_argument(
