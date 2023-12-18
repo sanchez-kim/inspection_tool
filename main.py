@@ -13,10 +13,12 @@ import pyrender
 import requests
 import trimesh
 from dotenv import load_dotenv
+import boto3
 
-from missing_files import find_missing_files
+from utils.missing_files import find_missing_files
+from models import MODELS
 
-load_dotenv
+load_dotenv()
 
 MAX_FRAME_NUM = 300
 RESIZE_FACTOR = (1000, 1000)
@@ -24,34 +26,82 @@ BATCH = 1
 
 base_url = os.getenv("base_url")
 base_image_url = os.getenv("base_image_url")
+bucket_name = "ins-ai-speech"
 
-# Output directories
-# obj_output_dir = Path("./objs")
-# img_output_dir = Path("./images")
-img_output_dir = Path("./Sentence2111_images/images")
-obj_output_dir = Path("./Sentence2111_objs/objs")
+s3 = boto3.client(
+    "s3",
+    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+)
 
-log_dir = Path("./logs")
-obj_output_dir.mkdir(parents=True, exist_ok=True)
-img_output_dir.mkdir(parents=True, exist_ok=True)
-log_dir.mkdir(parents=True, exist_ok=True)
+
+def list_2dimages(bucket_name, model_num, sentence_num):
+    """List frames for a given model and sentence."""
+    sentence_num = str(int(sentence_num)).zfill(4)
+    model_num = str(int(model_num))
+    prefix = (
+        f"reprocessed_v2/원천데이터/2DImageFront/Model{model_num}/Sentence{sentence_num}/"
+    )
+    response = s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+    frames = [obj["Key"] for obj in response.get("Contents", [])]
+    return frames
+
+
+def list_meshes(bucket_name, model_num, sentence_num):
+    """List frames for a given model and sentence."""
+    sentence_num = str(int(sentence_num)).zfill(4)
+    model_num = str(int(model_num))
+    prefix = f"reprocessed_v2/3Ddata/Model{model_num}/Sentence{sentence_num}/3Dmesh/"
+    response = s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+    frames = [obj["Key"] for obj in response.get("Contents", [])]
+    return frames
+
+
+def list_files(bucket_name):
+    """List files in an S3 bucket."""
+    try:
+        files = s3.list_objects_v2(Bucket=bucket_name)["Contents"]
+        return [file["Key"] for file in files]
+    except Exception as e:
+        print(f"Error listing files from S3 bucket: {e}")
+        return []
+
+
+def process_file(bucket_name, file_key):
+    """Download and process a file from S3."""
+    try:
+        # Download the file
+        response = s3.get_object(Bucket=bucket_name, Key=file_key)
+        # Process the file
+        # For example, you can read the content like this:
+        content = response["Body"].read()
+        # Add your file processing logic here
+        print(f"Processed file {file_key}")
+    except Exception as e:
+        print(f"Error processing file {file_key}: {e}")
 
 
 def download_and_process_obj(obj_url, obj_path, renderer):
-    mesh = load_obj_from_url(obj_url)
-    if mesh:
-        render_and_save(mesh, obj_path, renderer)
+    try:
+        mesh = load_obj_from_url(obj_url)
+        if mesh:
+            render_and_save(mesh, obj_path, renderer)
+    except Exception as e:
+        print(f"Error processing {obj_path.stem}: {e}")
 
 
 def download_and_process_image(image_url, image_path):
-    image = fetch_image(image_url)
-    if image:
-        image = rotate_image(image, 90)
-        image.save(image_path)
+    try:
+        image = fetch_image(image_url)
+        if image:
+            image = rotate_image(image, 90)
+            image.save(image_path)
+    except Exception as e:
+        print(f"Error processing {image_path.stem}: {e}")
 
 
 def process_batches(obj_batch, img_batch, renderer):
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    with ThreadPoolExecutor() as executor:
         # Create a dictionary to hold future to file mapping
         future_to_file = {}
 
@@ -107,17 +157,48 @@ def fetch_image(url):
 
 
 def load_obj_from_url(url):
+    print(url)
     response = requests.get(url)
     if response.status_code == 200:
-        return trimesh.load(io.BytesIO(response.content), file_type="obj")
+        loaded_obj = trimesh.load(io.BytesIO(response.content), file_type="obj")
+
+        # Check if the loaded object is a single mesh or a scene
+        if isinstance(loaded_obj, trimesh.Trimesh):
+            # print("Loaded a single mesh.")
+            return loaded_obj
+        elif isinstance(loaded_obj, trimesh.Scene):
+            # print("Loaded a scene with multiple meshes.")
+            return loaded_obj
+        else:
+            print("Loaded an unknown type.")
+            return None
     else:
+        print(f"Failed to download from {url}")
         return None
+
+
+def convert_to_pyrender_meshes(trimesh_obj):
+    pyrender_meshes = []
+
+    # If the loaded object is a single mesh
+    if isinstance(trimesh_obj, trimesh.Trimesh):
+        pyrender_meshes.append(pyrender.Mesh.from_trimesh(trimesh_obj))
+
+    # If the loaded object is a scene with multiple meshes
+    elif isinstance(trimesh_obj, trimesh.Scene):
+        for geom in trimesh_obj.geometry.values():
+            if isinstance(geom, trimesh.Trimesh):
+                pyrender_meshes.append(pyrender.Mesh.from_trimesh(geom))
+
+    return pyrender_meshes
 
 
 def render_and_save(mesh, file_path, renderer):
     scene = pyrender.Scene()
-    pyrender_mesh = pyrender.Mesh.from_trimesh(mesh)
-    scene.add(pyrender_mesh)
+    pyrender_meshes = convert_to_pyrender_meshes(mesh)
+
+    for item in pyrender_meshes:
+        scene.add(item)
 
     # Add a lighting
     light = pyrender.DirectionalLight(color=np.ones(3), intensity=3.0)
@@ -294,50 +375,78 @@ def eval_process(save_results, max_workers=4):
     print("Landmark jobs done!")
 
 
+import random
+
+
 def main(args):
     if args.download:
+        # model_num = args.model.zfill(2)
+        model_nums = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]
+
         renderer = pyrender.OffscreenRenderer(1000, 1000)
+        for model_num in model_nums:
+            try:
+                existing_objs = {f.stem for f in obj_output_dir.glob("*.png")}
+                existing_images = {f.stem for f in img_output_dir.glob("*.png")}
 
-        try:
-            existing_objs = {f.stem for f in obj_output_dir.glob("*.png")}
-            existing_images = {f.stem for f in img_output_dir.glob("*.png")}
+                obj_batch = []
+                img_batch = []
 
-            obj_batch = []
-            img_batch = []
-            # for sentence_num in tqdm(range(2501, 3001), desc="Processing sentences"):
-            for sentence_num in range(2501, 3001):
-                print("processing: ", sentence_num)
-                for num in range(0, MAX_FRAME_NUM + 1):
-                    frame_num = f"{num:03}"
-                    filename = f"M06_S{sentence_num}_F{frame_num}"
+                for sentence_num in range(
+                    MODELS[model_num][0], MODELS[model_num][1] + 1
+                ):
+                    print("processing: ", sentence_num)
 
-                    if filename not in existing_objs:
-                        obj_url = base_url.format(
-                            sentence_num=sentence_num, frame_num=frame_num
+                    available_meshes = list_meshes(bucket_name, model_num, sentence_num)
+
+                    sampled_mesh_paths = random.sample(
+                        available_meshes, min(5, len(available_meshes))
+                    )
+
+                    # for num in range(0, MAX_FRAME_NUM + 1):
+                    for mesh_path in sampled_mesh_paths:
+                        image_path = mesh_path.replace(
+                            f"reprocessed_v2/3Ddata/Model{str(int(model_num))}/Sentence{sentence_num}/3Dmesh/",
+                            f"reprocessed_v2/원천데이터/2DImageFront/Model{str(int(model_num))}/Sentence{sentence_num}/",
+                        ).replace(".obj", ".png")
+
+                        obj_url = f"https://{bucket_name}.s3.amazonaws.com/{mesh_path}"
+                        image_url = (
+                            f"https://{bucket_name}.s3.amazonaws.com/{image_path}"
                         )
-                        obj_path = obj_output_dir / f"{filename}.png"
-                        obj_batch.append((obj_url, obj_path))
 
-                    if filename not in existing_images:
-                        image_url = base_image_url.format(
-                            sentence_num=sentence_num, frame_num=frame_num
-                        )
-                        image_path = img_output_dir / f"{filename}.png"
-                        img_batch.append((image_url, image_path))
+                        if not os.path.exists(
+                            obj_output_dir / os.path.basename(mesh_path)
+                        ):
+                            obj_batch.append(
+                                (obj_url, obj_output_dir / os.path.basename(mesh_path))
+                            )
+                        if not os.path.exists(
+                            img_output_dir / os.path.basename(image_path)
+                        ):
+                            img_batch.append(
+                                (
+                                    image_url,
+                                    img_output_dir / os.path.basename(image_path),
+                                )
+                            )
 
-                    # Process OBJ batch
-                    if len(obj_batch) == BATCH or len(img_batch) == BATCH:
-                        process_batches(obj_batch, img_batch, renderer)
-                        obj_batch = []
-                        img_batch = []
-            if obj_batch or img_batch:
-                process_batches(obj_batch, img_batch, renderer)
-        except Exception as e:
-            print(e)
+                        print(img_batch, obj_batch)
 
-        finally:
-            print("Download jobs done!")
-            renderer.delete()
+                        # Process OBJ batch
+                        if len(obj_batch) == BATCH or len(img_batch) == BATCH:
+                            process_batches(obj_batch, img_batch, renderer)
+                            obj_batch = []
+                            img_batch = []
+
+                if obj_batch or img_batch:
+                    process_batches(obj_batch, img_batch, renderer)
+            except Exception as e:
+                print(e)
+
+            finally:
+                print("Download jobs done!")
+                renderer.delete()
 
     elif args.custom:
         renderer = pyrender.OffscreenRenderer(1000, 1000)
@@ -400,9 +509,9 @@ def main(args):
         renderer.delete()
 
     elif args.eval:
-        with open("eval_log.txt", "w") as log_file, contextlib.redirect_stdout(
-            log_file
-        ):
+        with open(
+            "eval_log.txt", "w", encoding="utf-8"
+        ) as log_file, contextlib.redirect_stdout(log_file):
             eval_process(args.save_results)
 
     else:
@@ -436,4 +545,15 @@ if __name__ == "__main__":
         help="Save images with landmarks",
     )
     args = parser.parse_args()
+
+    # Output directories
+    model_nums = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]
+    for model_num in model_nums:
+        output_base_dir = Path(f"./M{model_num}")
+        obj_output_dir = Path(output_base_dir, "objs")
+        img_output_dir = Path(output_base_dir, "images")
+        log_dir = Path(output_base_dir, "logs")
+        obj_output_dir.mkdir(parents=True, exist_ok=True)
+        img_output_dir.mkdir(parents=True, exist_ok=True)
+        log_dir.mkdir(parents=True, exist_ok=True)
     main(args)

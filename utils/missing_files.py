@@ -1,5 +1,5 @@
 from pathlib import Path
-from utils.filelist import extract_filenames
+from .filelist import extract_filenames
 
 
 def check_missing_files(file_names, directory, extension=".png"):
