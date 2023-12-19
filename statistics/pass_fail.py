@@ -6,8 +6,10 @@ import argparse
 
 def main(args):
     log_averages_file = args.average_path
-    model_num = args.model.zfill(2)
-    log_directory = f"../M{model_num}/logs"
+    # model_num = args.model.zfill(2)
+    model_num = "retry"
+    # log_directory = f"../M{model_num}/logs"
+    log_directory = f"../retry/logs"
 
     # Read and filter averages over 50
     averages_over_50 = []
@@ -39,7 +41,7 @@ def main(args):
         else:
             print("No matching log files found for averages over 50.")
 
-        print(len("Total: ", averages_over_50))
+        print("Total: ", len(averages_over_50))
 
     with open(f"M{model_num}_pass_fail.txt", "w") as f:
         for log_number, file_name in matched_files:

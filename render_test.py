@@ -11,7 +11,8 @@ from trimesh.visual.texture import TextureVisuals
 
 load_dotenv()
 
-base_url = os.getenv("base_url")
+# base_url = os.getenv("base_url")
+base_url = ""
 
 r = pyrender.OffscreenRenderer(1000, 1000)
 
@@ -65,9 +66,7 @@ def convert_to_pyrender_meshes(trimesh_obj):
 
 
 def render_obj(model_num, sentence_num, frame_num):
-    obj_url = base_url.format(
-        model_num=model_num, sentence_num=sentence_num, frame_num=frame_num
-    )
+    obj_url = f"https://ins-ai-speech.s3.ap-northeast-2.amazonaws.com/reprocessed_v2/3Ddata/Model{str(int(model_num))}/Sentence{sentence_num}/3Dmesh/M{model_num}_S{sentence_num}_F{frame_num}.obj"
     print("Rendering: ", obj_url)
     mesh = load_obj_from_url(obj_url)
     pyrender_meshes = convert_to_pyrender_meshes(mesh)
@@ -92,7 +91,7 @@ def render_obj(model_num, sentence_num, frame_num):
     # Set camera position
     camera = pyrender.PerspectiveCamera(yfov=fov, aspectRatio=aspect_ratio)
     camera_pose = np.eye(4)
-    camera_pose[:3, 3] = [0.1, -0.5, 6.5]
+    camera_pose[:3, 3] = [0, 0, 2]
 
     # Add the camera to the scene with the specified pose
     scene.add(camera, pose=camera_pose)
@@ -115,31 +114,6 @@ def process_file_list(file_list):
     r.delete()
 
 
-file_list = [
-    "M07_S3461_F073.png",
-    "M07_S3464_F061.png",
-    "M07_S3464_F062.png",
-    "M07_S3464_F079.png",
-    "M07_S3464_F080.png",
-    "M07_S3467_F053.png",
-    "M07_S3467_F065.png",
-    "M07_S3467_F098.png",
-    "M07_S3467_F099.png",
-    "M07_S3471_F110.png",
-    "M07_S3472_F001.png",
-    "M07_S3472_F007.png",
-    "M07_S3472_F013.png",
-    "M07_S3472_F041.png",
-    "M07_S3472_F050.png",
-    "M07_S3472_F051.png",
-    "M07_S3472_F056.png",
-    "M07_S3472_F079.png",
-    "M07_S3475_F077.png",
-    "M07_S3475_F081.png",
-    "M07_S3475_F085.png",
-    "M07_S3475_F086.png",
-    "M07_S3475_F113.png",
-    "M07_S3479_F045.png",
-]
+file_list = ["M04_S1815_F016.png"]
 
 process_file_list(file_list)

@@ -3,9 +3,11 @@ import argparse
 
 
 def main(args):
-    model_num = args.model.zfill(2)
+    # model_num = args.model.zfill(2)
+    model_num = "retry"
     # Define the base directory and find all log files
-    base = f"./M{model_num}/logs"
+    # base = f"./M{model_num}/logs"
+    base = "retry/logs"
     logs = sorted(list(Path(base).glob("*.log")))
 
     # Initialize variables for total sum and count, and a list for storing averages

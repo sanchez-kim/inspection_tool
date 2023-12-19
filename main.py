@@ -15,7 +15,7 @@ import trimesh
 from dotenv import load_dotenv
 import boto3
 
-from utils.missing_files import find_missing_files
+from usecase.missing_files import find_missing_files
 from models import MODELS
 
 load_dotenv()
@@ -55,30 +55,6 @@ def list_meshes(bucket_name, model_num, sentence_num):
     response = s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
     frames = [obj["Key"] for obj in response.get("Contents", [])]
     return frames
-
-
-def list_files(bucket_name):
-    """List files in an S3 bucket."""
-    try:
-        files = s3.list_objects_v2(Bucket=bucket_name)["Contents"]
-        return [file["Key"] for file in files]
-    except Exception as e:
-        print(f"Error listing files from S3 bucket: {e}")
-        return []
-
-
-def process_file(bucket_name, file_key):
-    """Download and process a file from S3."""
-    try:
-        # Download the file
-        response = s3.get_object(Bucket=bucket_name, Key=file_key)
-        # Process the file
-        # For example, you can read the content like this:
-        content = response["Body"].read()
-        # Add your file processing logic here
-        print(f"Processed file {file_key}")
-    except Exception as e:
-        print(f"Error processing file {file_key}: {e}")
 
 
 def download_and_process_obj(obj_url, obj_path, renderer):
@@ -121,13 +97,8 @@ def process_batches(obj_batch, img_batch, renderer):
         for future in as_completed(future_to_file):
             file_path = future_to_file[future]
             try:
-                result = (
-                    future.result()
-                )  # This will re-raise any exception that occurred in the task
-                # Handle successful processing (if needed)
-                # print(f"Successfully processed: {file_path}")
+                result = future.result()
             except Exception as e:
-                # Log the error and continue with other tasks
                 print(f"Error processing file {file_path}: {e}")
 
 
@@ -164,10 +135,10 @@ def load_obj_from_url(url):
 
         # Check if the loaded object is a single mesh or a scene
         if isinstance(loaded_obj, trimesh.Trimesh):
-            # print("Loaded a single mesh.")
+            print("Loaded a single mesh.")
             return loaded_obj
         elif isinstance(loaded_obj, trimesh.Scene):
-            # print("Loaded a scene with multiple meshes.")
+            print("Loaded a scene with multiple meshes.")
             return loaded_obj
         else:
             print("Loaded an unknown type.")
@@ -203,7 +174,7 @@ def render_and_save(mesh, file_path, renderer):
     # Add a lighting
     light = pyrender.DirectionalLight(color=np.ones(3), intensity=3.0)
     light_pose = np.eye(4)
-    light_pose[:3, 3] = [1, 1, 1]
+    light_pose[:3, 3] = [0, 0, 0]
     scene.add(light, pose=light_pose)
 
     display = (1000, 1000)
@@ -213,7 +184,8 @@ def render_and_save(mesh, file_path, renderer):
     # Set camera position
     camera = pyrender.PerspectiveCamera(yfov=fov, aspectRatio=aspect_ratio)
     camera_pose = np.eye(4)
-    camera_pose[:3, 3] = [0.1, -0.5, 6.5]
+    # camera_pose[:3, 3] = [0.1, -0.5, 6.5]
+    camera_pose[:3, 3] = [0, 0, 2]
 
     # Add the camera to the scene with the specified pose
     scene.add(camera, pose=camera_pose)
@@ -222,7 +194,9 @@ def render_and_save(mesh, file_path, renderer):
 
     img = Image.fromarray(color)
 
-    img.save(file_path)
+    save_path = str(file_path).replace(".obj", ".png")
+
+    img.save(save_path)
 
 
 def process_image(image, image_identifier, save_results):
@@ -380,15 +354,12 @@ import random
 
 def main(args):
     if args.download:
-        # model_num = args.model.zfill(2)
-        model_nums = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]
-
         renderer = pyrender.OffscreenRenderer(1000, 1000)
-        for model_num in model_nums:
-            try:
-                existing_objs = {f.stem for f in obj_output_dir.glob("*.png")}
-                existing_images = {f.stem for f in img_output_dir.glob("*.png")}
 
+        model_nums = ["03", "04", "05", "06", "07", "08", "09", "10"]
+
+        try:
+            for model_num in model_nums:
                 obj_batch = []
                 img_batch = []
 
@@ -406,8 +377,8 @@ def main(args):
                     # for num in range(0, MAX_FRAME_NUM + 1):
                     for mesh_path in sampled_mesh_paths:
                         image_path = mesh_path.replace(
-                            f"reprocessed_v2/3Ddata/Model{str(int(model_num))}/Sentence{sentence_num}/3Dmesh/",
-                            f"reprocessed_v2/원천데이터/2DImageFront/Model{str(int(model_num))}/Sentence{sentence_num}/",
+                            f"reprocessed_v2/3Ddata/Model{str(int(model_num))}/Sentence{str(int(sentence_num)).zfill(4)}/3Dmesh/",
+                            f"reprocessed_v2/원천데이터/2DImageFront/Model{str(int(model_num))}/Sentence{str(int(sentence_num)).zfill(4)}/",
                         ).replace(".obj", ".png")
 
                         obj_url = f"https://{bucket_name}.s3.amazonaws.com/{mesh_path}"
@@ -431,8 +402,6 @@ def main(args):
                                 )
                             )
 
-                        print(img_batch, obj_batch)
-
                         # Process OBJ batch
                         if len(obj_batch) == BATCH or len(img_batch) == BATCH:
                             process_batches(obj_batch, img_batch, renderer)
@@ -441,12 +410,12 @@ def main(args):
 
                 if obj_batch or img_batch:
                     process_batches(obj_batch, img_batch, renderer)
-            except Exception as e:
-                print(e)
+        except Exception as e:
+            print(e)
 
-            finally:
-                print("Download jobs done!")
-                renderer.delete()
+        finally:
+            print("Download jobs done!")
+            renderer.delete()
 
     elif args.custom:
         renderer = pyrender.OffscreenRenderer(1000, 1000)
@@ -549,14 +518,11 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    # Output directories
-    model_nums = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]
-    for model_num in model_nums:
-        output_base_dir = Path(f"./M{model_num}")
-        obj_output_dir = Path(output_base_dir, "objs")
-        img_output_dir = Path(output_base_dir, "images")
-        log_dir = Path(output_base_dir, "logs")
-        obj_output_dir.mkdir(parents=True, exist_ok=True)
-        img_output_dir.mkdir(parents=True, exist_ok=True)
-        log_dir.mkdir(parents=True, exist_ok=True)
+    output_base_dir = Path(f"./retry")
+    obj_output_dir = Path(output_base_dir, "objs")
+    img_output_dir = Path(output_base_dir, "images")
+    log_dir = Path(output_base_dir, "logs")
+    obj_output_dir.mkdir(parents=True, exist_ok=True)
+    img_output_dir.mkdir(parents=True, exist_ok=True)
+    log_dir.mkdir(parents=True, exist_ok=True)
     main(args)

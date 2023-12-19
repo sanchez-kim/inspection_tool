@@ -5,6 +5,7 @@
 *.obj
 .env
 .DS_Store
+._.DS_Store
 __pycache__
 *.pyc
 *.txt
@@ -16,5 +17,5 @@ downloads
 temp
 utils/img
 utils/obj
-M05
-M07
+errors
+output
