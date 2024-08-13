@@ -66,7 +66,7 @@ def convert_to_pyrender_meshes(trimesh_obj):
 
 
 def render_obj(model_num, sentence_num, frame_num):
-    obj_url = f"https://ins-ai-speech.s3.ap-northeast-2.amazonaws.com/reprocessed_v2/3Ddata/Model{str(int(model_num))}/Sentence{sentence_num}/3Dmesh/M{model_num}_S{sentence_num}_F{frame_num}.obj"
+    obj_url = os.getenv("obj_url")
     print("Rendering: ", obj_url)
     mesh = load_obj_from_url(obj_url)
     pyrender_meshes = convert_to_pyrender_meshes(mesh)

@@ -1,5 +1,6 @@
 import requests
 from PIL import Image
+import os
 import io
 import re
 from natsort import natsorted
@@ -62,9 +63,7 @@ def process_local_images(output_path):
 
 load_dotenv()
 
-# base_image_url = os.getenv("base_image_url")
-base_image_url = "https://ins-ai-speech.s3.ap-northeast-2.amazonaws.com/reprocessed_v2/원천데이터/2DImageFront/Model{model_num_str}/Sentence{sentence_num}/M{model_num}_S{sentence_num}_F{frame_num}.png"
-# base_image_url = "https://ins-ai-speech.s3.ap-northeast-2.amazonaws.com/reprocessed_v2/원천데이터/2DImageFront/Model{model_num_str}/Sentence{sentence_num}/M{model_num}_S{sentence_num}_C27_F{frame_num}.png"
+base_image_url = os.getenv("base_image_url")
 
 file_list = [
     "M04_S1838_F96.png",
